@@ -1,0 +1,85 @@
+//@version=6
+// Hoagie strategy 2 or more bars are in the control candle
+// From Quant Trade Edge
+// https://www.youtube.com/watch?v=dzk82grzYjc&t=60s
+strategy("Hoagie strategy", overlay=true, initial_capital=20000, default_qty_type=strategy.fixed, default_qty_value=1, margin_long=0, margin_short=0)
+
+// Inputs
+heures_trading = input.string("0300-1530", "Heures de trading NY EST", group="Time Filter")
+d_monday        = input.bool(title="Monday", defval=true, group="Time Filter", tooltip="Take trades on this day?", inline="days")
+d_tuesday       = input.bool(title="Tuesday", defval=true, group="Time Filter", tooltip="Take trades on this day?", inline="days")
+d_wednesday     = input.bool(title="Wednesday", defval=true, group="Time Filter", tooltip="Take trades on this day?", inline="days")
+d_thursday      = input.bool(title="Thursday", defval=true, group="Time Filter", tooltip="Take trades on this day?", inline="days")
+d_friday        = input.bool(title="Friday", defval=true, group="Time Filter", tooltip="Take trades on this day?", inline="days")
+longs_allowed = input.bool(true, "LONGs allowed", group="Type of positions")
+shorts_allowed =input.bool(true, "SHORTs allowed", group="Type of positions")
+emaPeriod = input.int(title='EMA and ATR Period', defval=10, group="Algo configuration")
+tp_factor_atr = input.float(title='Target = ATR x', defval=0.5, step = 0.1, group="Algo configuration")
+
+// InSession() determines if a price bar falls inside the specified session (and day)
+days = d_monday ? "2" : ""
+days := days + (d_tuesday ? "3" : "")
+days := days + (d_wednesday ? "4" : "")
+days := days + (d_thursday ? "5" : "")
+days := days + (d_friday ? "6" : "")
+
+// Restriction des heures de trading
+inKillzone = not na(time(timeframe.period, heures_trading + ":" + days, "America/New_York"))
+
+// Vérifier qu'aucun trade n'est en cours
+noTrade = strategy.position_size == 0
+
+// Compute indicators
+
+var bool pending_order = false
+var float entryPrice = 0
+var float SL_to_show = 0
+var float TP_to_show = 0
+ema = ta.ema(ohlc4, emaPeriod)
+ecarttype = ta.stdev(ohlc4, emaPeriod)
+atr = ta.atr(emaPeriod)
+
+// Hoagie Arrows [Hoagies
+HoagieUp = high[1] < high[2] and low[1] > low[2] and high < high[2] and low > low[2] and (ohlc4 > ema) and noTrade and longs_allowed
+HoagieDown = high[1] < high[2] and low[1] > low[2] and high < high[2] and low > low[2] and (ohlc4 < ema) and noTrade and shorts_allowed
+
+// Placer les ordres
+if HoagieDown and inKillzone and not pending_order
+    entryPrice := low[2]
+    SL_to_show := high[2]
+    TP_to_show := low[2] - math.round_to_mintick(atr * tp_factor_atr)
+    strategy.entry("Short", strategy.short, qty=2, stop=entryPrice)
+    strategy.exit("Short Exit", from_entry="Short", stop=SL_to_show, limit=TP_to_show)
+    pending_order := true
+    box.new(left=bar_index, right=bar_index + 3, top=SL_to_show, bottom=entryPrice, border_color=color.red, bgcolor=color.new(color.red, 80), text="SL: " + str.tostring(SL_to_show-entryPrice), text_size = size.small, text_halign = text.align_right, text_valign = text.align_top)
+    box.new(left=bar_index, right=bar_index + 3, top=entryPrice, bottom=TP_to_show, border_color=color.green, bgcolor=color.new(color.green, 80))
+
+if HoagieUp and inKillzone and not pending_order
+    entryPrice := high[2]
+    SL_to_show := low[2]
+    TP_to_show := high[2]+math.round_to_mintick(atr * tp_factor_atr)
+    strategy.entry("Long", strategy.long, qty=2, stop=entryPrice)
+    strategy.exit("Long Exit", from_entry="Long", stop=SL_to_show, limit=TP_to_show)
+    pending_order := true
+    box.new(left=bar_index, right=bar_index + 3, top=entryPrice, bottom=SL_to_show, border_color=color.red, bgcolor=color.new(color.red, 80), text="SL: " + str.tostring(entryPrice-SL_to_show), text_size = size.small, text_halign = text.align_right, text_valign = text.align_bottom)
+    box.new(left=bar_index, right=bar_index + 3, top=TP_to_show, bottom=entryPrice, border_color=color.green, bgcolor=color.new(color.green, 80))
+
+// Traitement spécifique à l'ouverture de la position
+if (strategy.position_size[1] == 0) and (strategy.position_size != 0)
+    pending_order := false
+
+// Cancels pending order if TP or SL reached
+if pending_order and noTrade
+    if (entryPrice > TP_to_show) and ((low < TP_to_show) or (high > SL_to_show))
+        strategy.cancel_all()
+        pending_order := false
+    else if (entryPrice < TP_to_show) and ((high > TP_to_show) or (low < SL_to_show))
+        strategy.cancel_all()
+        pending_order := false
+
+plotshape(HoagieUp,title='Hoagie Up',style=shape.triangleup,location=location.belowbar,color=color.purple,size=size.small) 
+plotshape(HoagieDown,title='Hoagie Down',style=shape.triangledown,location=location.abovebar,color=color.purple,size=size.small) 
+plot(ema)
+
+// Plot current position
+bgcolor(strategy.position_size > 0 ? color.new(color.blue, 90) : strategy.position_size < 0 ? color.new(color.blue, 90) : na)
