@@ -14,7 +14,8 @@ d_friday        = input.bool(title="Friday", defval=true, group="Time Filter", t
 longs_allowed = input.bool(true, "LONGs allowed", group="Type of positions")
 shorts_allowed =input.bool(true, "SHORTs allowed", group="Type of positions")
 emaPeriod = input.int(title='EMA and ATR Period', defval=10, group="Algo configuration")
-tp_factor_atr = input.float(title='Target = ATR x', defval=0.5, step = 0.1, group="Algo configuration")
+minATRvalue = input.int(title='Minimum ATR for trading', defval=19, group="Algo configuration")
+tp_factor_atr = input.float(title='Target = ATR x', defval=2.6, step = 0.1, group="Algo configuration")
 
 // InSession() determines if a price bar falls inside the specified session (and day)
 days = d_monday ? "2" : ""
@@ -38,10 +39,12 @@ var float TP_to_show = 0
 ema = ta.ema(ohlc4, emaPeriod)
 ecarttype = ta.stdev(ohlc4, emaPeriod)
 atr = ta.atr(emaPeriod)
+good_volatility = atr >= minATRvalue
 
 // Hoagie Arrows [Hoagies
-HoagieUp = high[1] < high[2] and low[1] > low[2] and high < high[2] and low > low[2] and (ohlc4 > ema) and noTrade and longs_allowed
-HoagieDown = high[1] < high[2] and low[1] > low[2] and high < high[2] and low > low[2] and (ohlc4 < ema) and noTrade and shorts_allowed
+Hoagie = high[1] < high[2] and low[1] > low[2] and high < high[2] and low > low[2]
+HoagieUp = Hoagie and (ohlc4 > ema) and noTrade and longs_allowed and good_volatility
+HoagieDown = Hoagie and (ohlc4 < ema) and noTrade and shorts_allowed and good_volatility
 
 // Placer les ordres
 if HoagieDown and inKillzone and not pending_order
